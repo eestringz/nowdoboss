@@ -1,0 +1,81 @@
+pipeline {
+    agent any  // 이 파이프라인이 실행될 Jenkins 에이전트를 지정합니다. 'any'는 사용 가능한 임의의 에이전트에서 실행될 수 있음을 의미합니다.
+    triggers {
+        GenericTrigger(
+            genericVariables: [
+                [key: 'USER_NAME', value: '$.user.name', expressionType: 'JSONPath'],
+                [key: 'IF_MERGED', value: '$.object_attributes.state', expressionType: 'JSONPath'],
+                [key: 'BASE_BRANCH', value: '$.object_attributes.target_branch', expressionType: 'JSONPath'],
+                [key: 'LABEL', value: '$.labels[*].title', expressionType: 'JSONPath']
+            ],
+            causeString: 'Triggered by GitLab Merge Request by ${USER_NAME}',
+            token: 'util',
+            printContributedVariables: true,
+            printPostContent: true,
+            regexpFilterText: '$IF_MERGED $BASE_BRANCH $LABEL',
+            regexpFilterExpression: '(?=.*merged)(?=.*develop)(?=.*CICD-Util)'
+        )
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    // 빌드 설명 설정
+                    currentBuild.description = "Merge requested by: ${env.USER_NAME}"
+                }
+            }
+        }
+
+        stage('Deploy with Docker Compose') {
+            steps {
+                script {
+                    echo "Redis 컨테이너 실행 상태 확인 중..."
+                    def isRedisRunning = sh(script: "docker ps --filter name=nowdoboss_redis --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "Redis 실행 상태: ${isRedisRunning}"
+
+                    echo "SonarQube 컨테이너 실행 상태 확인 중..."
+                    def isSonarQubeRunning = sh(script: "docker ps --filter name=nowdoboss_sonarqube --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "SonarQube 실행 상태: ${isSonarQubeRunning}"
+
+                    echo "Zookeeper 컨테이너 실행 상태 확인 중..."
+                    def isZookeeperRunning = sh(script: "docker ps --filter name=nowdoboss_zookeeper --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "Zookeeper 실행 상태: ${isZookeeperRunning}"
+
+                    echo "Kafka-1 컨테이너 실행 상태 확인 중..."
+                    def isKafkaRunning_1 = sh(script: "docker ps --filter name=nowdoboss_kafka-1 --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "Kafka-1 실행 상태: ${isKafkaRunning_1}"
+
+                    echo "Kafka-2 컨테이너 실행 상태 확인 중..."
+                    def isKafkaRunning_2 = sh(script: "docker ps --filter name=nowdoboss_kafka-2 --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "Kafka-2 실행 상태: ${isKafkaRunning_2}"
+
+                    echo "Kafka-3 컨테이너 실행 상태 확인 중..."
+                    def isKafkaRunning_3 = sh(script: "docker ps --filter name=nowdoboss_kafka-3 --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "Kafka-3 실행 상태: ${isKafkaRunning_3}"
+
+                    echo "Kafka-ui 컨테이너 실행 상태 확인 중..."
+                    def isKafkaUiRunning = sh(script: "docker ps --filter name=nowdoboss_kafka-ui --filter status=running --format '{{.Names}}'", returnStdout: true).trim()
+                    echo "Kafka-ui 실행 상태: ${isKafkaUiRunning}"
+
+                    if (isRedisRunning == "") {
+                        echo "redis 관련 dockerfile 빌드..."
+                        sh "docker-compose -f ./CICD/Util/docker-compose.yml up --build -d redis"
+                    }
+
+                    // if (isSonarQubeRunning == "") {
+                    //     echo "sonarqube 관련 dockerfile 빌드..."
+                    //     sh "docker-compose -f ./CICD/Util/docker-compose.yml up --build -d sonarqube"
+                    // }
+
+                    // kafka 분산 클러스터 구성
+                    if (isZookeeperRunning == "" || isKafkaRunning_1 == "" || isKafkaRunning_2 == "" || isKafkaRunning_3 == "" || isKafkaUiRunning == "") {
+                        echo "zookeeper 및 kafka, kafka-ui 관련 dockerfile 빌드..."
+                        sh "docker-compose -f ./CICD/Util/docker-compose.yml up --build -d zookeeper kafka-1 kafka-2 kafka-3 kafka-ui"
+                    }
+                }
+            }
+        }
+
+    }
+}
